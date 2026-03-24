@@ -1,18 +1,9 @@
 #!/usr/bin/env bash
 #
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║                OpenClaw CTL / MoltBot 管理脚本                  ║
-# ╠══════════════════════════════════════════════════════════════════╣
-# ║  作者     GitHub  : by Joey                                     ║
-# ║           YouTube : @joeyblog                                   ║
-# ║           Telegram: https://t.me/+ft-zI76oovgwNmRh             ║
-# ╠══════════════════════════════════════════════════════════════════╣
-# ║  致谢 / 引用                                                    ║
-# ║  · 原始脚本基础来自 kejilion（@kejilion）                       ║
-# ║  · CLIProxyAPI 安装器来自 cliproxyapi-installer                 ║
-# ║    github.com/brokechubb/cliproxyapi-installer                  ║
+# ║   OpenClaw CTL / MoltBot 管理脚本 (Optimized Version)            ║
 # ╚══════════════════════════════════════════════════════════════════╝
-#
+
 : "${gl_hui:='\e[37m'}"
 : "${gl_hong:='\033[31m'}"
 : "${gl_lv:='\033[32m'}"
@@ -23,215 +14,118 @@
 : "${gl_kjlan:='\033[96m'}"
 
 if ! declare -f break_end > /dev/null 2>&1; then
-break_end() {
-	if command -v gum >/dev/null 2>&1; then
-		echo
-		gum style --foreground 240 "  ───────────────────────────────────────  "
-		gum input --placeholder "» 按回车继续 «" --prompt "  " > /dev/null
-	else
-		echo "  ─── 按任意键继续 ───"
-		read -n 1 -s -r -p ""
-		echo
-	fi
-	clear
-}
+  break_end() {
+    if command -v gum >/dev/null 2>&1; then
+      echo
+      gum style --foreground 240 "  ───────────────────────────────────────  "
+      gum input --placeholder "» 按回车继续 «" --prompt "  " > /dev/null
+    else
+      echo -e "\n  ─── 按任意键继续 ───"
+      read -n 1 -s -r -p ""
+      echo
+    fi
+    clear
+  }
 fi
 
-if ! declare -f install > /dev/null 2>&1; then
-install() {
-	if [[ $# -eq 0 ]]; then
-		echo "未提供软件包参数"
-		return 1
-	fi
-	for package in "$@"; do
-		if ! command -v "$package" &>/dev/null; then
-			echo -e "${gl_kjlan}正在安装 $package...${gl_bai}"
-			if [[ "$(uname -s)" == "Darwin" ]]; then
-				_ensure_brew &>/dev/null
-				command -v brew &>/dev/null && brew install "$package" &>/dev/null
-			elif command -v dnf &>/dev/null; then
-				dnf install -y "$package" &>/dev/null
-			elif command -v yum &>/dev/null; then
-				yum install -y "$package" &>/dev/null
-			elif command -v apt &>/dev/null; then
-				DEBIAN_FRONTEND=noninteractive apt install -y "$package" &>/dev/null
-			elif command -v apk &>/dev/null; then
-				apk add "$package" &>/dev/null
-			elif command -v pacman &>/dev/null; then
-				pacman -S --noconfirm "$package" &>/dev/null
-			elif command -v zypper &>/dev/null; then
-				zypper install -y "$package" &>/dev/null
-			elif command -v opkg &>/dev/null; then
-				opkg install "$package" &>/dev/null
-			elif command -v pkg &>/dev/null; then
-				pkg install -y "$package" &>/dev/null
-			else
-				echo "未知的包管理器，无法安装 $package"
-				return 1
-			fi
-		fi
-	done
-}
-fi
-
-is_macos() { [[ "$(uname -s)" == "Darwin" ]]; }
-
-_ensure_brew() {
-	if ! command -v brew &>/dev/null; then
-		if [[ -f /opt/homebrew/bin/brew ]]; then
-			eval "$(/opt/homebrew/bin/brew shellenv)"
-		elif [[ -f /usr/local/bin/brew ]]; then
-			eval "$(/usr/local/bin/brew shellenv)"
-		fi
-	fi
-
-	if ! command -v brew &>/dev/null; then
-		echo "正在安装 Homebrew..."
-		/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-		if [[ -f /opt/homebrew/bin/brew ]]; then
-			eval "$(/opt/homebrew/bin/brew shellenv)"
-		elif [[ -f /usr/local/bin/brew ]]; then
-			eval "$(/usr/local/bin/brew shellenv)"
-		fi
-	fi
-
-	command -v brew &>/dev/null || { echo "Homebrew 安装失败，请手动安装：https://brew.sh"; return 1; }
+is_macos() {
+  [[ "$(uname -s)" == "Darwin" ]]
 }
 
 _sed_i() {
-	if is_macos; then
-		sed -i '' "$@"
-	else
-		sed -i "$@"
-	fi
+  if is_macos; then
+    sed -i '' "$@"
+  else
+    sed -i "$@"
+  fi
+}
+
+run_as_root() {
+    if [[ $EUID -ne 0 ]]; then sudo "$@"; else "$@"; fi
+}
+
+detect_pkg_manager() {
+    if is_macos; then
+        if ! command -v brew >/dev/null 2>&1; then
+            echo "正在安装 Homebrew..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null)"
+        fi
+        command -v brew >/dev/null 2>&1 || { echo "Homebrew 安装失败"; return 1; }
+        PKG_INSTALL="brew install"
+        PKG_UPDATE="brew update"
+    elif command -v apt >/dev/null 2>&1; then
+        PKG_INSTALL="run_as_root env DEBIAN_FRONTEND=noninteractive apt install -y"
+        PKG_UPDATE="run_as_root apt update -y"
+    elif command -v dnf >/dev/null 2>&1; then
+        PKG_INSTALL="run_as_root dnf install -y"
+        PKG_UPDATE=""
+    elif command -v yum >/dev/null 2>&1; then
+        PKG_INSTALL="run_as_root yum install -y"
+        PKG_UPDATE=""
+    elif command -v apk >/dev/null 2>&1; then
+        PKG_INSTALL="run_as_root apk add"
+        PKG_UPDATE="run_as_root apk update"
+    elif command -v pacman >/dev/null 2>&1; then
+        PKG_INSTALL="run_as_root pacman -S --noconfirm --needed"
+        PKG_UPDATE="run_as_root pacman -Sy"
+    elif command -v zypper >/dev/null 2>&1; then
+        PKG_INSTALL="run_as_root zypper install -y"
+        PKG_UPDATE=""
+    else
+        echo "未知的操作系统或包管理器，无法自动安装依赖！"
+        return 1
+    fi
 }
 
 install_base_deps() {
-	if is_macos; then
-		_ensure_brew || return 1
-		local missing_brew=()
-		for cmd in curl git nano jq python3 gpg; do
-			command -v "$cmd" &>/dev/null || missing_brew+=("$cmd")
-		done
-		for i in "${!missing_brew[@]}"; do
-			[[ "${missing_brew[$i]}" == "gpg" ]] && missing_brew[$i]="gnupg"
-		done
-		[[ ${#missing_brew[@]} -eq 0 ]] && return 0
-		echo "正在安装缺失依赖：${missing_brew[*]}..."
-		brew install "${missing_brew[@]}" &>/dev/null
-		return 0
-	fi
+    detect_pkg_manager || return 1
+    local missing_deps=()
+    local check_cmds=("curl" "git" "nano" "jq" "python3" "tar")
+    
+    for cmd in "${check_cmds[@]}"; do
+        command -v "$cmd" &>/dev/null || missing_deps+=("$cmd")
+    done
 
-	local -a dep_map=(
-		"curl:curl:curl:curl:curl:curl"
-		"git:git:git:git:git:git"
-		"nano:nano:nano:nano:nano:nano"
-		"jq:jq:jq:jq:jq:jq"
-		"python3:python3:python3:python3:python:python3"
-		"tar:tar:tar:tar:tar:tar"
-		"gpg:gnupg:gnupg2:gnupg:gnupg:gpg2"
-	)
+    if is_macos && ! command -v gpg &>/dev/null; then missing_deps+=("gnupg"); fi
 
-	local missing_apt=() missing_dnf=() missing_apk=() missing_pacman=() missing_zypper=()
-
-	for entry in "${dep_map[@]}"; do
-		IFS=: read -r cmd pkg_apt pkg_dnf pkg_apk pkg_pacman pkg_zypper <<< "$entry"
-		command -v "$cmd" &>/dev/null && continue
-		missing_apt+=("$pkg_apt")
-		missing_dnf+=("$pkg_dnf")
-		missing_apk+=("$pkg_apk")
-		missing_pacman+=("$pkg_pacman")
-		missing_zypper+=("$pkg_zypper")
-	done
-
-	[[ ${#missing_apt[@]} -eq 0 ]] && return 0
-
-	echo "正在安装缺失依赖：${missing_apt[*]}..."
-
-	if command -v apt &>/dev/null; then
-		apt update -y &>/dev/null
-		DEBIAN_FRONTEND=noninteractive apt install -y "${missing_apt[@]}" &>/dev/null
-	elif command -v dnf &>/dev/null; then
-		dnf install -y epel-release &>/dev/null || true
-		dnf install -y "${missing_dnf[@]}" &>/dev/null
-	elif command -v yum &>/dev/null; then
-		yum install -y epel-release &>/dev/null || true
-		yum install -y "${missing_dnf[@]}" &>/dev/null
-	elif command -v apk &>/dev/null; then
-		apk update &>/dev/null
-		apk add "${missing_apk[@]}" &>/dev/null
-	elif command -v pacman &>/dev/null; then
-		pacman -Sy --noconfirm --needed "${missing_pacman[@]}" &>/dev/null
-	elif command -v zypper &>/dev/null; then
-		zypper install -y "${missing_zypper[@]}" &>/dev/null
-	fi
-
-	if ! command -v python3 &>/dev/null; then
-		local py
-		py=$(compgen -c 2>/dev/null | grep -E '^python3\.[0-9]+$' | sort -V | tail -1)
-		if [[ -n "$py" ]]; then
-			ln -sf "$(command -v "$py")" /usr/local/bin/python3 2>/dev/null || true
-		fi
-	fi
-
-	if ! command -v python3 &>/dev/null; then
-		echo "正在安装 python3..."
-		if command -v apt &>/dev/null; then
-			DEBIAN_FRONTEND=noninteractive apt install -y python3 &>/dev/null
-		elif command -v dnf &>/dev/null; then
-			dnf install -y python3 &>/dev/null
-		elif command -v yum &>/dev/null; then
-			yum install -y python3 &>/dev/null
-		elif command -v apk &>/dev/null; then
-			apk add python3 &>/dev/null
-		elif command -v pacman &>/dev/null; then
-			pacman -S --noconfirm python &>/dev/null
-		elif command -v zypper &>/dev/null; then
-			zypper install -y python3 &>/dev/null
-		fi
-		hash -r 2>/dev/null || true
-	fi
+    if [[ ${#missing_deps[@]} -gt 0 ]]; then
+        echo -e "${gl_kjlan}正在安装缺失依赖：${missing_deps[*]}...${gl_bai}"
+        [[ -n "$PKG_UPDATE" ]] && eval "$PKG_UPDATE" &>/dev/null
+        eval "$PKG_INSTALL ${missing_deps[*]}" &>/dev/null
+    fi
 }
 
 _install_gum_binary() {
-	local arch
-	case "$(uname -m)" in
-		x86_64)  arch="amd64" ;;
-		aarch64) arch="arm64" ;;
-		armv7l)  arch="armv7" ;;
-		*) echo "不支持的架构: $(uname -m)"; return 1 ;;
-	esac
-	local latest
-	latest=$(curl -fsSL https://api.github.com/repos/charmbracelet/gum/releases/latest \
-		| grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
-	[[ -z "$latest" ]] && { echo "获取 gum 版本失败"; return 1; }
-	local url="https://github.com/charmbracelet/gum/releases/download/v${latest}/gum_${latest}_linux_${arch}.tar.gz"
-	local tmp
-	tmp=$(mktemp -d)
-	curl -fsSL "$url" -o "$tmp/gum.tar.gz" \
-		&& tar -xzf "$tmp/gum.tar.gz" -C "$tmp" \
-		&& install -m 755 "$tmp/gum" /usr/local/bin/gum
-	rm -rf "$tmp"
-	command -v gum >/dev/null 2>&1
+    local arch
+    case "$(uname -m)" in
+        x86_64) arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        armv7l) arch="armv7" ;;
+        *) echo "不支持的架构: $(uname -m)"; return 1 ;;
+    esac
+    local latest=$(curl -fsSL https://api.github.com/repos/charmbracelet/gum/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
+    [[ -z "$latest" ]] && { echo "获取 gum 版本失败"; return 1; }
+    local url="https://github.com/charmbracelet/gum/releases/download/v${latest}/gum_${latest}_linux_${arch}.tar.gz"
+    local tmp=$(mktemp -d)
+    curl -fsSL "$url" -o "$tmp/gum.tar.gz" && tar -xzf "$tmp/gum.tar.gz" -C "$tmp" && run_as_root install -m 755 "$tmp/gum" /usr/local/bin/gum
+    rm -rf "$tmp"
 }
 
 install_gum() {
-	command -v gum >/dev/null 2>&1 && return 0
-	echo "正在安装 gum..."
-	if command -v brew >/dev/null 2>&1; then
-		brew install gum
-	elif command -v apt >/dev/null 2>&1; then
-		command -v gpg >/dev/null 2>&1 || apt install -y gnupg 2>/dev/null
-		mkdir -p /etc/apt/keyrings
-		if curl -fsSL https://repo.charm.sh/apt/gpg.key \
-			| gpg --dearmor -o /etc/apt/keyrings/charm.gpg 2>/dev/null; then
-			echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" \
-				| tee /etc/apt/sources.list.d/charm.list >/dev/null
-			apt update -y 2>/dev/null && apt install -y gum 2>/dev/null
-		fi
-		command -v gum >/dev/null 2>&1 || _install_gum_binary
-	elif command -v dnf &>/dev/null; then
-		cat > /etc/yum.repos.d/charm.repo <<'REPO'
+    command -v gum >/dev/null 2>&1 && return 0
+    echo "正在安装 gum..."
+    
+    if is_macos; then
+        brew install gum
+    elif command -v apt >/dev/null 2>&1; then
+        run_as_root mkdir -p /etc/apt/keyrings
+        curl -fsSL https://repo.charm.sh/apt/gpg.key | run_as_root gpg --dearmor -o /etc/apt/keyrings/charm.gpg 2>/dev/null
+        echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | run_as_root tee /etc/apt/sources.list.d/charm.list >/dev/null
+        run_as_root apt update -y 2>/dev/null && run_as_root apt install -y gum 2>/dev/null
+    elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
+        local pm=$(command -v dnf || command -v yum)
+        run_as_root tee /etc/yum.repos.d/charm.repo <<'REPO' >/dev/null
 [charm]
 name=Charm
 baseurl=https://repo.charm.sh/yum/
@@ -239,51 +133,23 @@ enabled=1
 gpgcheck=1
 gpgkey=https://repo.charm.sh/yum/gpg.key
 REPO
-		dnf install -y gum
-	elif command -v yum &>/dev/null; then
-		cat > /etc/yum.repos.d/charm.repo <<'REPO'
-[charm]
-name=Charm
-baseurl=https://repo.charm.sh/yum/
-enabled=1
-gpgcheck=1
-gpgkey=https://repo.charm.sh/yum/gpg.key
-REPO
-		yum install -y gum
-	elif command -v apk &>/dev/null; then
-		apk add gum 2>/dev/null || _install_gum_binary
-	elif command -v pacman &>/dev/null; then
-		pacman -S --noconfirm gum 2>/dev/null || _install_gum_binary
-	elif command -v zypper &>/dev/null; then
-		zypper install -y gum 2>/dev/null || _install_gum_binary
-	else
-		_install_gum_binary
-	fi
-	command -v gum >/dev/null 2>&1 || { echo "gum 安装失败，请手动安装: https://github.com/charmbracelet/gum"; return 1; }
+        run_as_root $pm install -y gum
+    else
+        _install_gum_binary
+    fi
 }
 
 install_fzf() {
-	command -v fzf >/dev/null 2>&1 && return 0
-	echo "正在安装 fzf..."
-	if command -v brew >/dev/null 2>&1; then
-		brew install fzf
-	elif command -v apt >/dev/null 2>&1; then
-		apt install -y fzf
-	elif command -v dnf &>/dev/null; then
-		dnf install -y fzf
-	elif command -v yum &>/dev/null; then
-		yum install -y fzf
-	elif command -v apk &>/dev/null; then
-		apk add fzf
-	elif command -v pacman &>/dev/null; then
-		pacman -S --noconfirm fzf
-	elif command -v zypper &>/dev/null; then
-		zypper install -y fzf
-	else
-		echo "无法自动安装 fzf，请手动安装: https://github.com/junegunn/fzf"
-		return 1
-	fi
+    command -v fzf >/dev/null 2>&1 && return 0
+    echo "正在安装 fzf..."
+    detect_pkg_manager || return 1
+    eval "$PKG_INSTALL fzf"
 }
+
+# =========================================================================
+# 下方保留原脚本的 _install_shortcut 及后续代码（无需修改）
+# =========================================================================
+
 
 _install_shortcut() {
 	local store_dir shortcut_dir shortcut
